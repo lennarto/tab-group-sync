@@ -1,0 +1,36 @@
+{
+  "action": {
+     "default_icon": "1282.png",
+     "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+     "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "description": "",
+  "icons": {
+     "128": "1282.png"
+  },
+  "manifest_version": 3,
+  "minimum_chrome_version": "89",
+  "name": "NOTION TAB SYNC",
+  "permissions": [ "tabs", "tabGroups", "storage", "scripting", "https://*/", "<all_urls>" ],
+  "host_permissions": [
+    "*://*.atlassian.net/*",
+    "*://*.notion.so/*"
+  ],
+  "background": {
+   "service_worker": "background.js"
+ },
+ "commands": {
+	"_execute_action": {
+		"suggested_key": "MacCtrl+Ctrl+N",
+		"description": "Toggle dark body"
+	}
+},
+  "update_url": "https://clients2.google.com/service/update2/crx",
+  "version": "0.0.1",
+  "web_accessible_resources": [ {
+     "matches": [  ],
+     "resources": [ "icon-128.png", "icon-48.png", "icon-16.png" ]
+  } ]
+}
