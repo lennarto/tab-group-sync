@@ -1,0 +1,18 @@
+/* styles.css */
+.my-custom-button {
+    background-color: #007bff; /* Example blue */
+    color: white;
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    /* Add any other styles you want */
+  }
+  
+  .my-custom-button:hover {
+    background-color: #0056b3; /* Darker blue on hover */
+  }
+  
+  /* You might need site-specific adjustments if z-index conflicts arise */

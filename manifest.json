@@ -1,18 +1,24 @@
 {
-  "action": {
-     "default_icon": "1282.png",
-     "default_popup": "popup.html"
-  },
   "content_security_policy": {
      "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "description": "",
-  "icons": {
-     "128": "1282.png"
-  },
+  "action": {
+   "default_icon": {
+     "16": "images/icon16.png",
+     "48": "images/icon48.png",
+     "128": "images/icon128.png"
+   },
+   "default_popup": "popup.html"
+ },
+ "icons": {
+   "16": "images/icon16.png",
+   "48": "images/icon48.png",
+   "128": "images/icon128.png"
+ },
   "manifest_version": 3,
   "minimum_chrome_version": "89",
-  "name": "NOTION TAB SYNC",
+  "name": "NOTION TAB SYNC 3",
   "permissions": [ "tabs", "tabGroups", "storage", "scripting", "https://*/", "<all_urls>", "activeTab", "contextMenus"],
   "host_permissions": [
     "*://*.atlassian.net/*",
@@ -27,6 +33,13 @@
 		"description": "Toggle dark body"
 	}
 },
+"content_scripts": [
+    {
+      "matches": ["https://www.notion.so/*"],
+      "js": ["ContentScript.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "update_url": "https://clients2.google.com/service/update2/crx",
   "version": "0.0.1",
   "web_accessible_resources": [ {
