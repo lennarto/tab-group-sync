@@ -23,7 +23,7 @@ const CTX = (() => {
   } else if (CTX.isJira) {
     watchJira();
   } else if (CTX.isSheets) {
-    mountFloatingUiStacked(); // sheets uses floating; stacked for consistency
+    watchSheets();
   }
 })();
 
@@ -37,13 +37,13 @@ function watchNotion() {
         document.querySelector(".notion-page-controls") ||
         /[a-f0-9]{32}/i.test(location.href));
 
-    if (isPage) mountFloatingUiStacked(); // stacked buttons (one below the other)
+    if (isPage) mountFloatingUiStacked(); // stacked (one below the other)
     else unmountUi();
   });
 
   mo.observe(document.documentElement, { childList: true, subtree: true });
 
-  // First tick
+  // first tick
   const isPage =
     document.querySelector(".notion-page-content") &&
     (document.querySelector("h1[contenteditable]") ||
@@ -58,7 +58,7 @@ function watchJira() {
   const mo = new MutationObserver(() => ensureJiraUi());
   mo.observe(document.documentElement, { childList: true, subtree: true });
 
-  // also re-check on SPA URL changes
+  // SPA URL changes
   let lastHref = location.href;
   setInterval(() => {
     if (lastHref !== location.href) {
@@ -71,7 +71,6 @@ function watchJira() {
 }
 
 function ensureJiraUi() {
-  // Only on actual issue views
   const onIssue =
     /\/browse\//.test(location.pathname) ||
     !!document.querySelector('[data-testid^="issue-view-"], [data-test-id^="issue-view-"]');
@@ -81,7 +80,6 @@ function ensureJiraUi() {
     return;
   }
 
-  // Try to mount inside the quick-add/apps bar; fallback to floating
   const bar = getJiraQuickBarContainer();
   if (bar) {
     mountInlineJiraUiAtEnd(bar);
@@ -90,39 +88,76 @@ function ensureJiraUi() {
   }
 }
 
-/**
- * Find the flex row container that holds the quick-add/apps buttons
- * by locating one of the known triggers and walking up to a sane flex row.
- */
 function getJiraQuickBarContainer() {
   const triggers = [
-    '[data-testid$="apps-button-dropdown--trigger"]', // "Add Apps" / "View app actions"
-    '[data-testid$="add-button-dropdown--trigger"]',  // "+ Add or create..."
+    '[data-testid$="apps-button-dropdown--trigger"]',
+    '[data-testid$="add-button-dropdown--trigger"]',
     '[data-test-id$="apps-button-dropdown--trigger"]',
     '[data-test-id$="add-button-dropdown--trigger"]',
   ];
   const trigger = document.querySelector(triggers.join(", "));
   if (!trigger) return null;
 
-  // Prefer the trigger's parent row; Jira uses nested flex wrappers.
   let el = trigger.parentElement;
   for (let i = 0; i < 8 && el; i++) {
     const style = getComputedStyle(el);
-    const isFlexRow = style.display === "flex";
-    if (isFlexRow) {
-      // sanity: avoid huge containers; prefer rows with reasonable child count
-      if (el.children.length <= 20) return el;
-    }
+    if (style.display === "flex" && el.children.length <= 20) return el;
     el = el.parentElement;
   }
   return null;
 }
 
-/* ========================= UI (floating & inline) ========================= */
+/* ========================= Google Sheets handling ========================= */
 
-/**
- * Floating widget (Notion/Sheets; stacked buttons with title).
- */
+function watchSheets() {
+  const mo = new MutationObserver(() => ensureSheetsUi());
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+
+  let lastHref = location.href;
+  setInterval(() => {
+    if (lastHref !== location.href) {
+      lastHref = location.href;
+      ensureSheetsUi();
+    }
+  }, 500);
+
+  ensureSheetsUi();
+}
+
+function ensureSheetsUi() {
+  // We only show on actual spreadsheet editor URLs
+  const hasMenubar = document.querySelector("#docs-menubar");
+  if (!hasMenubar) {
+    unmountUi();
+    return;
+  }
+
+  const container = getSheetsMenuContainer();
+  if (container) {
+    mountInlineSheetsUi(container);
+  } else {
+    unmountUi();
+  }
+}
+
+function getSheetsMenuContainer() {
+  // Insert after the Help/Hilfe menu item in the top menubar
+  const menubar = document.querySelector("#docs-menubar");
+  if (!menubar) return null;
+
+  // Help can be localized; prefer the explicit id when present
+  const help = document.querySelector("#docs-help-menu");
+  if (help && help.parentElement === menubar) return menubar;
+
+  // Fallback: last visible menu button
+  const items = menubar.querySelectorAll('.menu-button.goog-control:not([style*="display: none"])');
+  if (items.length) return menubar;
+
+  return null;
+}
+
+/* ========================= UI (floating / inline containers) ========================= */
+
 function mountFloatingUiStacked() {
   const existing = document.getElementById(IDS.wrap);
   if (existing && existing.dataset.mode === "floating-stacked") {
@@ -136,11 +171,11 @@ function mountFloatingUiStacked() {
   wrap.dataset.mode = "floating-stacked";
   Object.assign(wrap.style, {
     position: "fixed",
-    top: "180px",     // requested vertical offset
+    top: "180px",
     right: "16px",
     zIndex: "2147483646",
     display: "flex",
-    flexDirection: "column", // stacked
+    flexDirection: "column",
     gap: "10px",
     alignItems: "stretch",
     background: "transparent",
@@ -160,17 +195,13 @@ function mountFloatingUiStacked() {
   const openBtn = mkBtn(IDS.openBtn, "👉 Open all URLs", palette().cyan);
   const copyBtn = mkBtn(IDS.insertBtn, "🔗 Copy all URLs", palette().pink);
 
-  wrap.append(title, openBtn, copyBtn); // stacked under title
+  wrap.append(title, openBtn, copyBtn);
   document.body.appendChild(wrap);
 
   hookHandlers();
   console.log("[TGS] UI mounted (floating stacked)");
 }
 
-/**
- * Inline Jira UI: append our buttons at the END of the quick bar,
- * after the "Add Apps" button. Match height to native buttons.
- */
 function mountInlineJiraUiAtEnd(container) {
   const existing = document.getElementById(IDS.wrap);
   if (existing && existing.dataset.mode === "inline-jira") return;
@@ -183,10 +214,9 @@ function mountInlineJiraUiAtEnd(container) {
     display: "flex",
     gap: "8px",
     alignItems: "center",
-    marginLeft: "8px", // small spacing from last native button
+    marginLeft: "8px",
   });
 
-  // Determine native button height/padding to blend in
   const sampleBtn =
     container.querySelector('button[data-testid$="apps-button-dropdown--trigger"]') ||
     container.querySelector('button[data-testid$="add-button-dropdown--trigger"]') ||
@@ -202,10 +232,67 @@ function mountInlineJiraUiAtEnd(container) {
   });
 
   wrap.append(openBtn, copyBtn);
-  container.appendChild(wrap); // append at the end
+  container.appendChild(wrap);
 
   hookHandlers();
-  console.log("[TGS] UI mounted (inline in Jira quick bar)");
+  console.log("[TGS] UI mounted (inline Jira)");
+}
+
+function mountInlineSheetsUi(menubar) {
+  const existing = document.getElementById(IDS.wrap);
+  if (existing && existing.dataset.mode === "inline-sheets") return;
+  unmountUi();
+
+  // Build a compact inline row that looks at home in the menubar
+  const wrap = document.createElement("div");
+  wrap.id = IDS.wrap;
+  wrap.dataset.mode = "inline-sheets";
+  Object.assign(wrap.style, {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    marginLeft: "12px",
+    verticalAlign: "middle",
+  });
+
+  // Read a menubar item to match height/typography
+  const helpItem = menubar.querySelector("#docs-help-menu") ||
+                   menubar.querySelector('.menu-button.goog-control');
+  const cs = helpItem ? getComputedStyle(helpItem) : null;
+  const menubarHeight = cs ? parseInt(cs.height) : 28;
+  const fontSizePx = cs ? parseInt(cs.fontSize) : 12;
+  const padV = Math.max(2, Math.floor((menubarHeight - 20) / 2)); // heuristic
+  const padH = 10;
+  const borderRadius = "14px";
+
+  const openBtn = mkBtnCompact(IDS.openBtn, "👉 Open all URLs", palette().cyan, {
+    heightPx: menubarHeight,
+    fontSizePx,
+    padV,
+    padH,
+    borderRadius,
+  });
+
+  const copyBtn = mkBtnCompact(IDS.insertBtn, "🔗 Copy all URLs", palette().pink, {
+    heightPx: menubarHeight,
+    fontSizePx,
+    padV,
+    padH,
+    borderRadius,
+  });
+
+  wrap.append(openBtn, copyBtn);
+
+  // Insert *after* the Help/Hilfe item
+  const helpMenu = menubar.querySelector("#docs-help-menu");
+  if (helpMenu && helpMenu.nextSibling) {
+    helpMenu.parentElement.insertBefore(wrap, helpMenu.nextSibling);
+  } else {
+    menubar.appendChild(wrap);
+  }
+
+  hookHandlers();
+  console.log("[TGS] UI mounted (inline Sheets menubar)");
 }
 
 function unmountUi() {
@@ -253,29 +340,32 @@ function mkBtn(id, text, color) {
 }
 
 /**
- * Compact button that tries to match Jira toolbar button height.
+ * Compact variant with optional metrics to match host toolbar height.
  * metrics: { heightPx, fontSizePx, padV, padH, borderRadius }
  */
 function mkBtnCompact(id, text, color, metrics) {
   const btn = mkBtn(id, text, color);
+  btn.style.padding = "4px 10px";
+  btn.style.fontSize = "12px";
+  btn.style.borderWidth = "2px";
 
-  // Apply metrics to visually match Jira's buttons
   if (metrics) {
     const { heightPx, fontSizePx, padV, padH, borderRadius } = metrics;
     if (fontSizePx) btn.style.fontSize = fontSizePx + "px";
     if (borderRadius) btn.style.borderRadius = borderRadius;
-    // Prefer using padding to hit the height; outline keeps 2px border
-    if (padV != null) btn.style.paddingTop = padV + "px", btn.style.paddingBottom = padV + "px";
-    if (padH != null) btn.style.paddingLeft = padH + "px", btn.style.paddingRight = padH + "px";
+    if (padV != null) {
+      btn.style.paddingTop = padV + "px";
+      btn.style.paddingBottom = padV + "px";
+    }
+    if (padH != null) {
+      btn.style.paddingLeft = padH + "px";
+      btn.style.paddingRight = padH + "px";
+    }
     if (heightPx) btn.style.minHeight = heightPx + "px";
   }
-
   return btn;
 }
 
-/**
- * Reads a Jira native button's visual metrics so our buttons match.
- */
 function readNativeButtonMetrics(nativeBtn) {
   if (!nativeBtn) {
     return { heightPx: 30, fontSizePx: 12, padV: 4, padH: 10, borderRadius: "3px" };
@@ -306,8 +396,8 @@ function applyThemeFloating(wrap) {
 }
 
 function palette() {
-  const cyan = "#2fa7d9"; // darker blue (your request)
-  const pink = "#ff4d6d"; // brighter red (your request)
+  const cyan = "#2fa7d9"; // darker cyan/blue
+  const pink = "#ff4d6d"; // brighter pink/red
   return { cyan, pink };
 }
 
