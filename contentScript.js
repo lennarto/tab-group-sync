@@ -1,202 +1,259 @@
-// content.js
+// Tab Group Sync – contentScript.js (Only show on real pages)
+// Debug tip: watch console logs with prefix [TGS]
 
-console.log("[MyExt] Content script loaded for URL:", window.location.href);
+console.log("[TGS] content script injected:", location.href);
 
-// --- Your Script Logic ---
-function runMyScript() {
-  console.log("[MyExt] runMyScript: Button clicked! Running the script...");
-  //  ██████████████████████████████████████████████████████████████████
-  //  █                                                              █
-  //  █  >>>>>> PASTE OR CALL YOUR EXISTING SCRIPT LOGIC HERE <<<<<<  █
-  //  █                                                              █
-  //  ██████████████████████████████████████████████████████████████████
-  alert("Your script has run!"); // Example action
+const CTX = (() => {
+  const u = location.href;
+  if (u.includes("notion.so") || u.includes("notion.site")) return "notion";
+  if (u.includes(".atlassian.net")) return "jira";
+  if (u.includes("docs.google.com")) return "sheets";
+  return "unknown";
+})();
+
+const IDS = { wrap: "tgs-wrap", openBtn: "tgs-open-btn", insertBtn: "tgs-insert-btn" };
+
+/* ------------------------- Host-specific gating ------------------------- */
+
+const NOTION_PAGE_ID_RE = /[0-9a-f]{32}/i;              // ...abcd1234abcd1234abcd1234abcd1234
+const NOTION_GUID_RE    = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+function isNotionPageView() {
+  // Signal 1: URL contains a Notion page id (robust for most internal+public links)
+  const hasIdInUrl = NOTION_PAGE_ID_RE.test(location.href) || NOTION_GUID_RE.test(location.href);
+
+  // Signal 2: The page DOM exists: a page content root with at least one page block
+  const pageRoot = document.querySelector(".notion-page-content");
+  const hasBlocks = !!document.querySelector(".notion-page-content [data-block-id]");
+
+  // Signal 3: A page title is mounted (Notion uses contenteditable)
+  const hasEditableTitle = !!document.querySelector(
+    '.notion-page-content h1[contenteditable], .notion-page-content [contenteditable][data-content-editable-leaf]'
+  );
+
+  // We only show if the page *really* looks like a document, not DB/gallery/home.
+  // Keep this permissive: any two signals are enough.
+  const score = [hasIdInUrl, !!pageRoot, hasBlocks, hasEditableTitle].filter(Boolean).length;
+  return score >= 2;
 }
 
-// --- Button Creation and Placement ---
-function addButtonToPage(site) {
-  const buttonId = 'my-extension-button';
-  if (document.getElementById(buttonId)) {
-    console.log("[MyExt] addButtonToPage: Button already exists. Skipping.");
+function isJiraIssueView() {
+  // Works for new & classic UIs
+  return /\/browse\//.test(location.pathname) ||
+         !!document.querySelector('[data-testid^="issue-view-"], [data-test-id^="issue-view-"]');
+}
+
+function isSheetsDoc() {
+  // Only spreadsheet docs, not Drive or other Google editors
+  return /\/spreadsheets\//.test(location.pathname);
+}
+
+function shouldShowUi() {
+  if (CTX === "notion") return isNotionPageView();
+  if (CTX === "jira")   return isJiraIssueView();
+  if (CTX === "sheets") return isSheetsDoc();
+  return false;
+}
+
+/* --------------------------- UI mount/unmount --------------------------- */
+
+function mkBtn(id, label) {
+  const b = document.createElement("button");
+  b.id = id;
+  b.textContent = label;
+  Object.assign(b.style, {
+    padding: "8px 12px",
+    border: "none",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "13px",
+    boxShadow: "0 2px 8px rgba(0,0,0,.2)",
+    background: "#1f6feb",
+    color: "#fff",
+  });
+  return b;
+}
+
+function mountUi() {
+  if (document.getElementById(IDS.wrap)) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = IDS.wrap;
+  Object.assign(wrap.style, {
+    position: "fixed",
+    top: "64px",
+    right: "16px",
+    zIndex: "2147483646",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  });
+
+  const openBtn   = mkBtn(IDS.openBtn,   "Open URLs");
+  const insertBtn = mkBtn(IDS.insertBtn, "Insert / Copy URLs");
+
+  wrap.append(openBtn, insertBtn);
+  document.body.appendChild(wrap);
+
+  openBtn.addEventListener("click", onOpenUrls);
+  insertBtn.addEventListener("click", onInsertOrCopy);
+
+  console.log("[TGS] UI mounted for", CTX);
+}
+
+function unmountUi() {
+  const wrap = document.getElementById(IDS.wrap);
+  if (wrap) {
+    wrap.remove();
+    console.log("[TGS] UI unmounted for", CTX);
+  }
+}
+
+// Debounced ensure (avoid thrashing on heavy DOM updates)
+let ensureTimer = null;
+function ensureUiDebounced() {
+  if (ensureTimer) cancelAnimationFrame(ensureTimer);
+  ensureTimer = requestAnimationFrame(() => {
+    if (shouldShowUi()) mountUi();
+    else unmountUi();
+  });
+}
+
+/* --------------------------- URL extraction ---------------------------- */
+
+function normalizeUrls(urls) {
+  return [...new Set(
+    urls.filter(Boolean)
+      .map(s => s.trim())
+      .filter(s => /^https?:\/\//i.test(s))
+      .map(s => s.split("?")[0].replace(/#.+$/, ""))
+  )];
+}
+
+function extractUrlsFromPage() {
+  // Simple and reliable: grab anchors
+  const urls = Array.from(document.querySelectorAll("a[href]"), a => a.href);
+  return normalizeUrls(urls);
+}
+
+/* ----------------------- Background communication ---------------------- */
+
+function sendToBG(cmd, payload = {}) {
+  return new Promise(resolve => chrome.runtime.sendMessage({ cmd, payload }, resolve));
+}
+
+async function onOpenUrls() {
+  const pageUrls = extractUrlsFromPage();
+  if (!pageUrls.length) {
+    alert("No URLs detected on this page.");
     return;
   }
-  console.log(`[MyExt] addButtonToPage: Creating button for ${site}.`);
+  const res = await sendToBG("OPEN_URLS", { urls: pageUrls, pageTitle: document.title });
+  console.log("[TGS] OPEN_URLS result:", res);
+}
 
-  const button = document.createElement('button');
-  button.id = buttonId;
-  button.textContent = 'Run My Script'; // Or any other text/icon
-  button.classList.add('my-custom-button'); // For styling via styles.css
+async function onInsertOrCopy() {
+  const groupInfo = await sendToBG("GET_GROUP_URLS");
+  if (!groupInfo || groupInfo.groupId === -1) {
+    return copyListWithToast(extractUrlsFromPage(), "Copied page URLs to clipboard.");
+  }
 
-  button.addEventListener('click', runMyScript);
+  const groupUrls = groupInfo.urls || [];
+  const pageUrls = extractUrlsFromPage();
+  const missing = normalizeUrls(groupUrls.filter(u => !pageUrls.includes(u)));
 
-  let parentElement;
-  // Default high z-index
-  button.style.zIndex = '10000';
-
-  if (site === 'notion') {
-    parentElement = document.querySelector('.notion-page-content');
-    if (parentElement) {
-      console.log("[MyExt] Notion parent '.notion-page-content' confirmed in addButtonToPage.");
-      // Ensure the parent can contain an absolutely positioned child
-      if (window.getComputedStyle(parentElement).position === 'static') {
-        parentElement.style.position = 'relative';
-        console.log("[MyExt] Set '.notion-page-content' position to relative.");
-      }
-      button.style.position = 'absolute';
-      button.style.top = '10px'; // Adjust as needed, considering padding
-      button.style.right = '10px'; // Adjust as needed
-    } else {
-      console.error("[MyExt] ERROR: Notion parent '.notion-page-content' not found in addButtonToPage. Cannot append button.");
-      return; // Stop if parent isn't found
-    }
-  } else if (site === 'jira') {
-    parentElement = document.querySelector('#jira-issue-header-actions') ||
-                    document.querySelector('[data-testid="issue-view-foundation-template-header"] header') ||
-                    document.querySelector('header[role="banner"]'); // More general
-    if (parentElement) {
-        console.log("[MyExt] Jira parent found in addButtonToPage:", parentElement);
-        if (window.getComputedStyle(parentElement).position === 'static') {
-           parentElement.style.position = 'relative';
-        }
-        button.style.position = 'absolute';
-        button.style.top = '10px'; // Adjust as needed
-        button.style.right = '10px'; // Adjust as needed
-    } else {
-        console.warn("[MyExt] Jira specific parent not found, attempting to append to body (fixed position).");
-        parentElement = document.body;
-        button.style.position = 'fixed';
-        button.style.top = '20px';
-        button.style.right = '20px';
-    }
-  } else if (site === 'google_sheets') {
-    parentElement = document.getElementById('docs-toolbar') ||
-                    document.querySelector('.docs-titlebar-buttons');
-    if (parentElement) {
-        console.log("[MyExt] Google Sheets parent found in addButtonToPage:", parentElement);
-        if (parentElement.id !== 'docs-toolbar' && window.getComputedStyle(parentElement).position === 'static') {
-            parentElement.style.position = 'relative';
-        }
-        button.style.position = 'absolute';
-        button.style.top = '5px';
-        button.style.right = '5px';
-        button.style.zIndex = '2000'; // Sheets UI can have high z-indexes
-    } else {
-        console.warn("[MyExt] Google Sheets specific parent not found, attempting to append to body (fixed position).");
-        parentElement = document.body;
-        button.style.position = 'fixed';
-        button.style.top = '20px';
-        button.style.right = '20px';
-        button.style.zIndex = '2000';
-    }
-  } else {
-    console.error(`[MyExt] Unknown site ('${site}') in addButtonToPage. Cannot determine parent.`);
+  if (!missing.length) {
+    alert("Nothing to add.");
     return;
   }
+  const inserted = tryInsertIntoHost(missing);
+  if (!inserted) copyListWithToast(missing, "Copied URLs to clipboard.");
+}
 
-  if (parentElement) {
-    parentElement.appendChild(button);
-    console.log(`[MyExt] Button successfully appended to parent for ${site}. Parent:`, parentElement);
-    // Log computed styles of the button AFTER appending it to the DOM
-    setTimeout(() => { // Timeout to ensure styles are applied and computed
-        if(document.getElementById(buttonId)){
-            console.log("[MyExt] Button computed style after append:", window.getComputedStyle(button));
-        } else {
-            console.log("[MyExt] Button disappeared after trying to append?");
-        }
-    }, 100);
-  } else {
-    // This path should ideally not be reached if logic above is correct
-    console.error(`[MyExt] CRITICAL: ParentElement is null for ${site} at append stage. Button not added.`);
+/* ------------------------- Host-specific insert ------------------------ */
+
+function tryInsertIntoHost(lines) {
+  const text = lines.join("\n");
+
+  if (CTX === "notion" || CTX === "jira") {
+    const target =
+      document.querySelector('div[contenteditable="true"]') ||
+      document.querySelector("[contenteditable='true']") ||
+      document.querySelector("textarea");
+    if (target) {
+      target.focus();
+      if (target.tagName === "TEXTAREA") {
+        target.value += (target.value ? "\n" : "") + text + "\n";
+      } else {
+        document.execCommand("insertText", false, text + "\n");
+      }
+      toast(`Inserted URLs into ${CTX}.`);
+      return true;
+    }
+  }
+
+  // Sheets: canvas UI → copy fallback
+  return false;
+}
+
+/* ------------------------------ Utilities ------------------------------ */
+
+async function copyText(s) {
+  try {
+    await navigator.clipboard.writeText(s);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = s;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
   }
 }
 
-// --- Detect Site and Initialize ---
-function initializeExtension() {
-  console.log("[MyExt] Initializing extension for page:", window.location.href);
-
-  // Function to attempt adding the button, potentially called by observer
-  const attemptAddButtonForSite = (siteKey) => {
-    console.log(`[MyExt] attemptAddButtonForSite called for ${siteKey}`);
-    if (document.getElementById('my-extension-button')) {
-        console.log("[MyExt] Button 'my-extension-button' already exists. Skipping add attempt.");
-        return true; // Indicate button exists or was handled
-    }
-
-    let targetElementFound = false;
-    if (siteKey === 'notion') {
-      if (document.querySelector('.notion-page-content')) {
-        console.log("[MyExt] Notion target '.notion-page-content' FOUND during attempt.");
-        addButtonToPage('notion');
-        targetElementFound = true;
-      } else {
-        console.log("[MyExt] Notion target '.notion-page-content' NOT found during attempt.");
-      }
-    } else if (siteKey === 'jira') {
-      if (document.querySelector('#jira-issue-header-actions') || document.querySelector('[data-testid="issue-view-foundation-template-header"] header')) {
-        console.log("[MyExt] Jira target element FOUND during attempt.");
-        addButtonToPage('jira');
-        targetElementFound = true;
-      } else {
-        console.log("[MyExt] Jira target element NOT found during attempt.");
-      }
-    } else if (siteKey === 'google_sheets') {
-      if (document.getElementById('docs-toolbar')) {
-        console.log("[MyExt] Google Sheets target element FOUND during attempt.");
-        addButtonToPage('google_sheets');
-        targetElementFound = true;
-      } else {
-        console.log("[MyExt] Google Sheets target element NOT found during attempt.");
-      }
-    }
-    return targetElementFound;
-  };
-
-  const hostname = window.location.hostname;
-  const pathname = window.location.pathname;
-  let siteKey = null;
-
-  if (hostname.includes('notion.so') || hostname.includes('notion.site')) {
-    siteKey = 'notion';
-  } else if (hostname.includes('atlassian.net') && (pathname.includes('/jira/') || pathname.startsWith('/browse/'))) { // Broader Jira path matching
-    siteKey = 'jira';
-  } else if (hostname.includes('docs.google.com') && pathname.includes('/spreadsheets/')) {
-    siteKey = 'google_sheets';
-  }
-
-  if (siteKey) {
-    console.log(`[MyExt] Site identified as: ${siteKey}.`);
-    // Initial attempt (in case element is already there)
-    if (attemptAddButtonForSite(siteKey)) {
-      console.log(`[MyExt] Button added on initial check for ${siteKey}.`);
-      return;
-    }
-
-    console.log(`[MyExt] Initial attempt failed or element not ready for ${siteKey}. Setting up MutationObserver.`);
-    const observer = new MutationObserver((mutationsList, obs) => {
-      // No need to iterate mutationsList for this simple check, just try adding button
-      if (attemptAddButtonForSite(siteKey)) {
-        console.log(`[MyExt] Button added via MutationObserver for ${siteKey}. Disconnecting observer.`);
-        obs.disconnect();
-      } else {
-        // console.log("[MyExt] MutationObserver fired, but target still not ready or button exists."); // Potentially noisy
-      }
-    });
-
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    console.log("[MyExt] MutationObserver is now observing documentElement for changes.");
-
-  } else {
-    console.log("[MyExt] Site not recognized for button addition based on hostname/pathname.");
-  }
+function copyListWithToast(list, msg) {
+  copyText(list.join("\n")).then(() => toast(msg));
 }
 
-// --- Run Initialization Logic ---
-// Ensure the script runs after the DOM is fully loaded for initial check,
-// but rely on MutationObserver for SPAs.
-if (document.readyState === 'loading') {
-    console.log("[MyExt] DOM is in 'loading' state. Adding DOMContentLoaded listener.");
-    document.addEventListener('DOMContentLoaded', initializeExtension);
+function toast(msg) {
+  const d = document.createElement("div");
+  d.textContent = msg;
+  Object.assign(d.style, {
+    position: "fixed",
+    bottom: "16px",
+    right: "16px",
+    padding: "10px 12px",
+    background: "rgba(0,0,0,.85)",
+    color: "#fff",
+    borderRadius: "6px",
+    zIndex: "2147483647",
+  });
+  document.body.appendChild(d);
+  setTimeout(() => d.remove(), 1800);
+}
+
+/* --------------------------- Init & listeners -------------------------- */
+
+function init() {
+  // First pass after initial Notion mount (it renders progressively)
+  ensureUiDebounced();
+
+  // Watch DOM for SPA re-renders (Notion/Jira update the tree a lot)
+  const mo = new MutationObserver(() => ensureUiDebounced());
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+
+  // Watch URL changes (SPA route transitions without reload)
+  let lastHref = location.href;
+  setInterval(() => {
+    if (lastHref !== location.href) {
+      lastHref = location.href;
+      ensureUiDebounced();
+    }
+  }, 500);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init, { once: true });
 } else {
-    console.log("[MyExt] DOM is not 'loading' (current state: " + document.readyState + "). Running initializeExtension directly.");
-    initializeExtension();
+  init();
 }

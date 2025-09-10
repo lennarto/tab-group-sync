@@ -8,6 +8,8 @@
 
 <h3 align="center">
 	Chrome addon, that lets you sync your tab groups with Jira, Notion, or Google Sheets, so you stay organized and resume work easily.
+
+  COPY ALL URLS IN TAB GROUP AT ONCE !!
 </h3>
 
 <img src="images/demo.png" alt="Usage demo">

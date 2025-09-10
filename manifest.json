@@ -1,50 +1,67 @@
 {
-  "content_security_policy": {
-     "extension_pages": "script-src 'self'; object-src 'self'"
-  },
-  "description": "",
-  "action": {
-   "default_icon": {
-     "16": "images/icon16.png",
-     "48": "images/icon48.png",
-     "128": "images/icon128.png"
-   },
-   "default_popup": "popup.html"
- },
- "icons": {
-   "16": "images/icon16.png",
-   "48": "images/icon48.png",
-   "128": "images/icon128.png"
- },
   "manifest_version": 3,
-  "minimum_chrome_version": "89",
-  "name": "NOTION TAB SYNC 3",
-  "permissions": [ "tabs", "tabGroups", "storage", "scripting", "https://*/", "<all_urls>", "activeTab", "contextMenus"],
+  "name": "Tab Group Sync",
+  "version": "0.1.1",
+  "description": "Sync a Chrome tab group with links on a Notion page, Jira issue, or Google Sheet.",
+  "minimum_chrome_version": "114",
+  "icons": {
+    "16": "images/icon16.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "images/icon16.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    },
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "storage",
+    "scripting",
+    "activeTab",
+    "clipboardWrite",
+    "contextMenus"
+  ],
   "host_permissions": [
+    "*://*.notion.so/*",
+    "*://*.notion.site/*",
     "*://*.atlassian.net/*",
-    "*://*.notion.so/*"
+    "*://docs.google.com/*"
   ],
   "background": {
-   "service_worker": "background.js"
- },
- "commands": {
-	"_execute_action": {
-		"suggested_key": "MacCtrl+Ctrl+N",
-		"description": "Toggle dark body"
-	}
-},
-"content_scripts": [
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": "MacCtrl+Ctrl+N",
+      "description": "Open Tab Group Sync"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "content_scripts": [
     {
-      "matches": ["https://www.notion.so/*"],
-      "js": ["ContentScript.js"],
+      "matches": [
+        "https://*.notion.so/*",
+        "https://*.notion.site/*",
+        "https://*.atlassian.net/*",
+        "https://docs.google.com/*"
+      ],
+      "js": ["contentScript.js"],
       "run_at": "document_idle"
     }
   ],
-  "update_url": "https://clients2.google.com/service/update2/crx",
-  "version": "0.0.1",
-  "web_accessible_resources": [ {
-     "matches": [  ],
-     "resources": [ "icon-128.png", "icon-48.png", "icon-16.png" ]
-  } ],
-  "options_page": "options.html"
+  "web_accessible_resources": [
+    {
+      "resources": ["icon-128.png", "icon-48.png", "icon-16.png"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "options_page": "options.html",
+  "update_url": "https://clients2.google.com/service/update2/crx"
 }
