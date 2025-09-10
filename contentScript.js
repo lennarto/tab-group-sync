@@ -193,7 +193,7 @@ function mountFloatingUiStacked() {
   });
 
   const openBtn = mkBtn(IDS.openBtn, "👉 Open all URLs", palette().cyan);
-  const copyBtn = mkBtn(IDS.insertBtn, "🔗 Copy all URLs", palette().pink);
+  const copyBtn = mkBtn(IDS.insertBtn, "🔗 Copy new URLs", palette().pink);
 
   wrap.append(title, openBtn, copyBtn);
   document.body.appendChild(wrap);
@@ -227,7 +227,7 @@ function mountInlineJiraUiAtEnd(container) {
   const openBtn = mkBtnCompact(IDS.openBtn, "👉 Open all URLs", palette().cyan, {
     heightPx, fontSizePx, padV, padH, borderRadius,
   });
-  const copyBtn = mkBtnCompact(IDS.insertBtn, "🔗 Copy all URLs", palette().pink, {
+  const copyBtn = mkBtnCompact(IDS.insertBtn, "🔗 Copy new URLs", palette().pink, {
     heightPx, fontSizePx, padV, padH, borderRadius,
   });
 
@@ -273,7 +273,7 @@ function mountInlineSheetsUi(menubar) {
     borderRadius,
   });
 
-  const copyBtn = mkBtnCompact(IDS.insertBtn, "🔗 Copy all URLs", palette().pink, {
+  const copyBtn = mkBtnCompact(IDS.insertBtn, "🔗 Copy new URLs", palette().pink, {
     heightPx: menubarHeight,
     fontSizePx,
     padV,
@@ -304,7 +304,7 @@ function hookHandlers() {
   const openBtn = document.getElementById(IDS.openBtn);
   const insBtn = document.getElementById(IDS.insertBtn);
   if (openBtn) openBtn.addEventListener("click", onOpenUrls, { once: false });
-  if (insBtn) insBtn.addEventListener("click", onInsertOrCopy, { once: false });
+  if (insBtn) insBtn.addEventListener("click", onCopyNew, { once: false });
 }
 
 /* ========================= Styles / Theming ========================= */
@@ -401,12 +401,117 @@ function palette() {
   return { cyan, pink };
 }
 
+/* ========================= Helpers: URL collection & clipboard ========================= */
+
+function normalize(url) {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    u.search = "";
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+function getUrlsOnPage() {
+  const sel = [];
+  if (CTX.isNotion) {
+    const root = document.querySelector(".notion-page-content") || document;
+    root.querySelectorAll("a[href]").forEach(a => sel.push(a.href));
+  } else if (CTX.isJira) {
+    const root = document.querySelector(".ak-renderer-document") || document;
+    root.querySelectorAll("a[href]").forEach(a => sel.push(a.href));
+  } else if (CTX.isSheets) {
+    // Best-effort: grab any anchor in the grid area / doc
+    document.querySelectorAll(".grid4-inner-container a[href], .waffle a[href], a[href]").forEach(a => sel.push(a.href));
+  } else {
+    document.querySelectorAll("a[href]").forEach(a => sel.push(a.href));
+  }
+  // De-dup + normalize
+  const out = [];
+  const seen = new Set();
+  for (const u of sel.map(normalize).filter(Boolean)) {
+    if (!seen.has(u)) { seen.add(u); out.push(u); }
+  }
+  return out;
+}
+
+async function copyToClipboardRich(urls) {
+  if (!urls?.length) return;
+
+  // Plain text (one per line)
+  const textPlain = urls.join("\n");
+
+  // HTML: one <div><a href="...">...</a></div> per URL to paste as separate rows in Notion/Jira
+  const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const html = urls.map(u => `<div><a href="${esc(u)}">${esc(u)}</a></div>`).join("");
+
+  // Try the async ClipboardItem path first
+  try {
+    const item = new ClipboardItem({
+      "text/plain": new Blob([textPlain], { type: "text/plain" }),
+      "text/html": new Blob([html], { type: "text/html" }),
+    });
+    await navigator.clipboard.write([item]);
+    toast("✅ Copied new URLs to clipboard");
+    return;
+  } catch (e) {
+    // Fallback: writeText (plain only)
+    try {
+      await navigator.clipboard.writeText(textPlain);
+      toast("✅ Copied new URLs (plain) to clipboard");
+    } catch {
+      alert("Could not copy to clipboard. Please allow clipboard permission.");
+    }
+  }
+}
+
+function toast(msg) {
+  try {
+    const t = document.createElement("div");
+    t.textContent = msg;
+    Object.assign(t.style, {
+      position: "fixed",
+      bottom: "18px",
+      right: "18px",
+      background: "rgba(32,32,32,.92)",
+      color: "#fff",
+      padding: "8px 12px",
+      borderRadius: "10px",
+      fontSize: "12px",
+      zIndex: 2147483647,
+      boxShadow: "0 6px 24px rgba(0,0,0,.22)",
+    });
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2000);
+  } catch {}
+}
+
 /* ========================= Actions ========================= */
 
 function onOpenUrls() {
-  chrome.runtime.sendMessage({ type: "OPEN_URLS" });
+  const urls = getUrlsOnPage();
+  chrome.runtime.sendMessage({
+    cmd: "OPEN_URLS",
+    payload: { urls, pageTitle: document.title || "" }
+  });
 }
 
-function onInsertOrCopy() {
-  chrome.runtime.sendMessage({ type: "INSERT_OR_COPY_URLS" });
+async function onCopyNew() {
+  // Must be inside a tab group
+  const groupInfo = await chrome.runtime.sendMessage({ cmd: "GET_GROUP_URLS" });
+  if (!groupInfo || groupInfo.groupId === -1) {
+    alert("⚠️ Current tab is not in a Tab Group");
+    return;
+  }
+
+  const pageUrls = new Set(getUrlsOnPage());
+  const newOnes = (groupInfo.urls || []).filter(u => !pageUrls.has(u));
+  if (!newOnes.length) {
+    toast("All group URLs already listed here");
+    return;
+  }
+
+  await copyToClipboardRich(newOnes);
 }
