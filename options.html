@@ -1,28 +1,150 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>My Test Extension Options</title>
+    <meta charset="utf-8" />
+    <title>Tab Group Sync – Options</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --panel-bg: #ffffff;
+        --text: #111;
+        --muted: rgba(0,0,0,.75);
+        --border: rgba(0,0,0,.18);
+        --accent: #2fa7d9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --panel-bg: #16181c;         /* matches Chrome dark-ish */
+          --text: #f3f3f3;
+          --muted: rgba(255,255,255,.8);
+          --border: rgba(255,255,255,.14);
+        }
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 24px;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color: var(--text);
+        background: var(--panel-bg);
+        max-width: 980px;
+      }
+
+      h1 { font-size: 20px; margin: 0 0 16px; }
+
+      /* ----- “Card fieldset” with clean legend header ----- */
+      .group {
+        position: relative;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px 16px 16px;
+        margin: 18px 0;
+      }
+      .group-title {
+        position: absolute;
+        top: -10px;
+        left: 14px;
+        padding: 0 10px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: .02em;
+        color: var(--muted);
+        background: var(--panel-bg);   /* masks the border behind the text */
+        line-height: 1.2;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(200px, 1fr));
+        gap: 12px 18px;
+      }
+
+      label { display: inline-flex; align-items: center; gap: 10px; }
+
+      .help { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+      .actions { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
+      .muted { color: var(--muted); }
+
+      textarea {
+        width: 100%;
+        min-height: 200px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        border-radius: 10px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: inherit;
+        resize: vertical;
+      }
+
+      button {
+        border: 2px solid var(--accent);
+        color: var(--accent);
+        background: transparent;
+        border-radius: 999px;
+        padding: 8px 16px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover { background: var(--accent); color: #fff; }
+
+      code {
+        padding: 0 6px;
+        border-radius: 6px;
+        background: rgba(127,127,127,.12);
+      }
+    </style>
   </head>
   <body>
-    <select id="color">
-      <option value="red">red</option>
-      <option value="green">green</option>
-      <option value="blue">blue</option>
-      <option value="yellow">yellow</option>
-    </select>
+    <h1>Tab Group Sync – Options</h1>
 
-    <label>
-      <input type="checkbox" id="like" />
-      I like colors.
-    </label>
+    <section class="group">
+      <div class="group-title">Sites</div>
+      <div class="grid">
+        <label><input type="checkbox" id="enableNotion"> Enable Notion</label>
+        <label><input type="checkbox" id="enableJira"> Enable Jira</label>
+        <label><input type="checkbox" id="enableSheets"> Enable Sheets</label>
 
-    <label>
-      <input type="checkbox" id="option3" />
-      Option 3
-    </label>
+        <label><input type="checkbox" id="bulletNotion"> Paste as bullet list (Notion)</label>
+        <label><input type="checkbox" id="bulletJira"> Paste as bullet list (Jira)</label>
+        <label><input type="checkbox" id="bulletSheets"> Paste as bullet list (Sheets)</label>
+      </div>
+      <p class="help">
+        For Sheets, “bullet list” is treated as one-URL-per-line plain text so that pasting fills rows
+        instead of a single rich-text cell.
+      </p>
+    </section>
 
-    <div id="status"></div>
-    <button id="save">Save</button>
+    <section class="group">
+      <div class="group-title">Opening behavior</div>
+      <label>
+        <input type="checkbox" id="preloadTabs" />
+        Preload tabs in background (start loading without focusing)
+      </label>
+      <p class="help">
+        When enabled, newly added tabs will begin loading immediately even if they’re not selected.
+      </p>
+    </section>
+
+    <h2 style="font-size:16px; margin: 20px 0 8px;">Excluded hostnames</h2>
+    <p class="muted" style="margin:0 0 10px;">
+      One pattern per line. Supports wildcards like <code>*.google.com</code>. Any link with a matching host
+      is ignored by “Open all URLs” and “Copy new URLs”.
+    </p>
+    <textarea id="excludeHosts" spellcheck="false" placeholder="e.g. *.google.com&#10;accounts.google.com"></textarea>
+
+    <div class="actions">
+      <button id="saveBtn">Save</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <p class="muted" style="margin-top:20px">
+      Tip: The options page itself is a <code>chrome-extension://</code> URL and is always ignored.
+    </p>
 
     <script src="options.js"></script>
   </body>

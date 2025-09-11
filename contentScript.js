@@ -7,6 +7,7 @@ const IDS = {
   insertBtn: "tgs-insert-btn",
 };
 
+// ---------- context ----------
 const CTX = (() => {
   const h = location.hostname;
   return {
@@ -16,13 +17,52 @@ const CTX = (() => {
   };
 })();
 
-(function init() {
-  console.log("[TGS] content script loaded for", location.hostname);
-  if (CTX.isNotion) {
+// ---------- settings (sync) ----------
+const DEFAULT_EXCLUDED_HOSTS = [
+  "docs.google.com",
+  "accounts.google.com",
+  "www.google.com",
+  "clients6.google.com",
+  "*.google.com",
+  "*.gstatic.com",
+  "*.googleusercontent.com",
+  "ssl.gstatic.com",
+  "lh3.googleusercontent.com",
+  "storage.googleapis.com",
+  "apis.google.com",
+];
+
+const DEFAULT_SETTINGS = {
+  excludeHosts: DEFAULT_EXCLUDED_HOSTS,
+  enabled: { notion: true, jira: true, sheets: true },
+  bullet:  { notion: false, jira: false, sheets: false },
+};
+
+let SETTINGS = structuredClone(DEFAULT_SETTINGS);
+
+async function loadSettings() {
+  try {
+    const obj = await chrome.storage.sync.get(DEFAULT_SETTINGS);
+    // Merge defensively (handles older versions that don’t have new keys yet)
+    SETTINGS.excludeHosts = Array.isArray(obj.excludeHosts) ? obj.excludeHosts : DEFAULT_EXCLUDED_HOSTS;
+    SETTINGS.enabled = Object.assign({}, DEFAULT_SETTINGS.enabled, obj.enabled || {});
+    SETTINGS.bullet  = Object.assign({}, DEFAULT_SETTINGS.bullet,  obj.bullet  || {});
+  } catch {
+    SETTINGS = structuredClone(DEFAULT_SETTINGS);
+  }
+}
+
+// Run after settings are ready
+(async function init() {
+  await loadSettings();
+
+  console.log("[TGS] content script loaded for", location.hostname, SETTINGS);
+
+  if (CTX.isNotion && SETTINGS.enabled.notion) {
     watchNotion();
-  } else if (CTX.isJira) {
+  } else if (CTX.isJira && SETTINGS.enabled.jira) {
     watchJira();
-  } else if (CTX.isSheets) {
+  } else if (CTX.isSheets && SETTINGS.enabled.sheets) {
     watchSheets();
   }
 })();
@@ -37,13 +77,12 @@ function watchNotion() {
         document.querySelector(".notion-page-controls") ||
         /[a-f0-9]{32}/i.test(location.href));
 
-    if (isPage) mountFloatingUiStacked(); // stacked (one below the other)
+    if (isPage) mountFloatingUiStacked();
     else unmountUi();
   });
 
   mo.observe(document.documentElement, { childList: true, subtree: true });
 
-  // first tick
   const isPage =
     document.querySelector(".notion-page-content") &&
     (document.querySelector("h1[contenteditable]") ||
@@ -58,7 +97,6 @@ function watchJira() {
   const mo = new MutationObserver(() => ensureJiraUi());
   mo.observe(document.documentElement, { childList: true, subtree: true });
 
-  // SPA URL changes
   let lastHref = location.href;
   setInterval(() => {
     if (lastHref !== location.href) {
@@ -71,6 +109,8 @@ function watchJira() {
 }
 
 function ensureJiraUi() {
+  if (!SETTINGS.enabled.jira) { unmountUi(); return; }
+
   const onIssue =
     /\/browse\//.test(location.pathname) ||
     !!document.querySelector('[data-testid^="issue-view-"], [data-test-id^="issue-view-"]');
@@ -125,7 +165,8 @@ function watchSheets() {
 }
 
 function ensureSheetsUi() {
-  // We only show on actual spreadsheet editor URLs
+  if (!SETTINGS.enabled.sheets) { unmountUi(); return; }
+
   const hasMenubar = document.querySelector("#docs-menubar");
   if (!hasMenubar) {
     unmountUi();
@@ -141,22 +182,19 @@ function ensureSheetsUi() {
 }
 
 function getSheetsMenuContainer() {
-  // Insert after the Help/Hilfe menu item in the top menubar
   const menubar = document.querySelector("#docs-menubar");
   if (!menubar) return null;
 
-  // Help can be localized; prefer the explicit id when present
   const help = document.querySelector("#docs-help-menu");
   if (help && help.parentElement === menubar) return menubar;
 
-  // Fallback: last visible menu button
   const items = menubar.querySelectorAll('.menu-button.goog-control:not([style*="display: none"])');
   if (items.length) return menubar;
 
   return null;
 }
 
-/* ========================= UI (floating / inline containers) ========================= */
+/* ========================= UI (floating / inline) ========================= */
 
 function mountFloatingUiStacked() {
   const existing = document.getElementById(IDS.wrap);
@@ -243,7 +281,6 @@ function mountInlineSheetsUi(menubar) {
   if (existing && existing.dataset.mode === "inline-sheets") return;
   unmountUi();
 
-  // Build a compact inline row that looks at home in the menubar
   const wrap = document.createElement("div");
   wrap.id = IDS.wrap;
   wrap.dataset.mode = "inline-sheets";
@@ -255,35 +292,24 @@ function mountInlineSheetsUi(menubar) {
     verticalAlign: "middle",
   });
 
-  // Read a menubar item to match height/typography
   const helpItem = menubar.querySelector("#docs-help-menu") ||
                    menubar.querySelector('.menu-button.goog-control');
   const cs = helpItem ? getComputedStyle(helpItem) : null;
   const menubarHeight = cs ? parseInt(cs.height) : 28;
   const fontSizePx = cs ? parseInt(cs.fontSize) : 12;
-  const padV = Math.max(2, Math.floor((menubarHeight - 20) / 2)); // heuristic
+  const padV = Math.max(2, Math.floor((menubarHeight - 20) / 2));
   const padH = 10;
   const borderRadius = "14px";
 
   const openBtn = mkBtnCompact(IDS.openBtn, "👉 Open all URLs", palette().cyan, {
-    heightPx: menubarHeight,
-    fontSizePx,
-    padV,
-    padH,
-    borderRadius,
+    heightPx: menubarHeight, fontSizePx, padV, padH, borderRadius,
   });
-
   const copyBtn = mkBtnCompact(IDS.insertBtn, "🔗 Copy new URLs", palette().pink, {
-    heightPx: menubarHeight,
-    fontSizePx,
-    padV,
-    padH,
-    borderRadius,
+    heightPx: menubarHeight, fontSizePx, padV, padH, borderRadius,
   });
 
   wrap.append(openBtn, copyBtn);
 
-  // Insert *after* the Help/Hilfe item
   const helpMenu = menubar.querySelector("#docs-help-menu");
   if (helpMenu && helpMenu.nextSibling) {
     helpMenu.parentElement.insertBefore(wrap, helpMenu.nextSibling);
@@ -326,50 +352,31 @@ function mkBtn(id, text, color) {
     lineHeight: "1.2",
     whiteSpace: "nowrap",
   });
-  btn.onmouseenter = () => {
-    btn.style.background = color;
-    btn.style.color = "#fff";
-  };
-  btn.onmouseleave = () => {
-    btn.style.background = "transparent";
-    btn.style.color = color;
-  };
+  btn.onmouseenter = () => { btn.style.background = color; btn.style.color = "#fff"; };
+  btn.onmouseleave = () => { btn.style.background = "transparent"; btn.style.color = color; };
   btn.onmousedown = () => (btn.style.transform = "translateY(1px)");
   btn.onmouseup = () => (btn.style.transform = "none");
   return btn;
 }
 
-/**
- * Compact variant with optional metrics to match host toolbar height.
- * metrics: { heightPx, fontSizePx, padV, padH, borderRadius }
- */
 function mkBtnCompact(id, text, color, metrics) {
   const btn = mkBtn(id, text, color);
   btn.style.padding = "4px 10px";
   btn.style.fontSize = "12px";
   btn.style.borderWidth = "2px";
-
   if (metrics) {
     const { heightPx, fontSizePx, padV, padH, borderRadius } = metrics;
     if (fontSizePx) btn.style.fontSize = fontSizePx + "px";
     if (borderRadius) btn.style.borderRadius = borderRadius;
-    if (padV != null) {
-      btn.style.paddingTop = padV + "px";
-      btn.style.paddingBottom = padV + "px";
-    }
-    if (padH != null) {
-      btn.style.paddingLeft = padH + "px";
-      btn.style.paddingRight = padH + "px";
-    }
+    if (padV != null) { btn.style.paddingTop = padV + "px"; btn.style.paddingBottom = padV + "px"; }
+    if (padH != null) { btn.style.paddingLeft = padH + "px"; btn.style.paddingRight = padH + "px"; }
     if (heightPx) btn.style.minHeight = heightPx + "px";
   }
   return btn;
 }
 
 function readNativeButtonMetrics(nativeBtn) {
-  if (!nativeBtn) {
-    return { heightPx: 30, fontSizePx: 12, padV: 4, padH: 10, borderRadius: "3px" };
-  }
+  if (!nativeBtn) return { heightPx: 30, fontSizePx: 12, padV: 4, padH: 10, borderRadius: "3px" };
   const cs = getComputedStyle(nativeBtn);
   const heightPx = parseInt(cs.height) || 30;
   const fontSizePx = parseInt(cs.fontSize) || 12;
@@ -382,17 +389,10 @@ function readNativeButtonMetrics(nativeBtn) {
 function applyThemeFloating(wrap) {
   const title = wrap.querySelector(`#${IDS.title}`);
   if (title) title.style.color = "#555";
-
   const openBtn = document.getElementById(IDS.openBtn);
   const insBtn = document.getElementById(IDS.insertBtn);
-  if (openBtn) {
-    openBtn.style.borderColor = palette().cyan;
-    openBtn.style.color = palette().cyan;
-  }
-  if (insBtn) {
-    insBtn.style.borderColor = palette().pink;
-    insBtn.style.color = palette().pink;
-  }
+  if (openBtn) { openBtn.style.borderColor = palette().cyan; openBtn.style.color = palette().cyan; }
+  if (insBtn) { insBtn.style.borderColor = palette().pink; insBtn.style.color = palette().pink; }
 }
 
 function palette() {
@@ -401,7 +401,7 @@ function palette() {
   return { cyan, pink };
 }
 
-/* ========================= Helpers: URL collection & clipboard ========================= */
+/* ========================= URL collection & filtering ========================= */
 
 function normalize(url) {
   try {
@@ -409,55 +409,172 @@ function normalize(url) {
     u.hash = "";
     u.search = "";
     return u.toString();
-  } catch {
-    return null;
+  } catch { return null; }
+}
+
+function extractUrlsFromText(text) {
+  if (!text) return [];
+  const out = [];
+  const re = /\bhttps?:\/\/[^\s<>"')]+/gi;
+  let m;
+  while ((m = re.exec(text))) out.push(m[0].replace(/[),.;:]+$/g, ""));
+  return out;
+}
+
+function globToRegex(glob) {
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`, "i");
+}
+
+function hostMatches(pattern, host) {
+  try {
+    if (!pattern) return false;
+    if (pattern.includes("*")) return globToRegex(pattern).test(host);
+    return pattern.toLowerCase() === host.toLowerCase();
+  } catch { return false; }
+}
+
+function isIgnorableHost(host) {
+  const list = SETTINGS.excludeHosts || DEFAULT_EXCLUDED_HOSTS;
+  return list.some(p => hostMatches(p, host));
+}
+
+function filterRealHttp(urls) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of urls) {
+    if (!/^https?:\/\//i.test(raw)) continue;
+    const n = normalize(raw);
+    if (!n) continue;
+    const h = new URL(n).hostname;
+    if (isIgnorableHost(h)) continue;
+    if (!seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
   }
+  return out;
+}
+
+/* ---- Sheets-specific collectors ---- */
+
+function getUrlsFromSheetsGrid() {
+  const grid = document.querySelector(".grid4-inner-container");
+  if (!grid) return [];
+  const collected = [];
+  const cells = grid.querySelectorAll('[role="gridcell"]');
+  cells.forEach(cell => {
+    cell.querySelectorAll('a[href^="http"]').forEach(a => collected.push(a.href));
+    const txt = (cell.textContent || "") + " " + (cell.getAttribute("aria-label") || "");
+    extractUrlsFromText(txt).forEach(u => collected.push(u));
+  });
+  return filterRealHttp(collected);
+}
+
+function deepScanForUrls(val, bucket) {
+  if (!val) return;
+  if (typeof val === "string") { extractUrlsFromText(val).forEach(u => bucket.push(u)); return; }
+  if (Array.isArray(val)) { for (const v of val) deepScanForUrls(v, bucket); return; }
+  if (typeof val === "object") { for (const k in val) deepScanForUrls(val[k], bucket); }
+}
+
+function getUrlsFromSheetsBootstrap() {
+  const scripts = Array.from(document.scripts || []);
+  for (const s of scripts) {
+    const txt = s.textContent || "";
+    if (!txt || !txt.includes("bootstrapData")) continue;
+
+    const m = txt.match(/bootstrapData\s*=\s*({[\s\S]*?});/);
+    if (!m) continue;
+
+    try {
+      const json = JSON.parse(m[1]);
+      const buckets = [];
+      if (json.changes) buckets.push(json.changes);
+      if (json.topsnapshot) buckets.push(json.topsnapshot);
+      if (!buckets.length) buckets.push(json);
+
+      const urls = [];
+      for (const b of buckets) deepScanForUrls(b, urls);
+      return filterRealHttp(urls);
+    } catch {
+      const urls = extractUrlsFromText(txt);
+      return filterRealHttp(urls);
+    }
+  }
+  return [];
 }
 
 function getUrlsOnPage() {
-  const sel = [];
   if (CTX.isNotion) {
     const root = document.querySelector(".notion-page-content") || document;
-    root.querySelectorAll("a[href]").forEach(a => sel.push(a.href));
-  } else if (CTX.isJira) {
+    const collected = [];
+    root.querySelectorAll("a[href]").forEach(a => collected.push(a.href));
+    return filterRealHttp(collected);
+  }
+
+  if (CTX.isJira) {
     const root = document.querySelector(".ak-renderer-document") || document;
-    root.querySelectorAll("a[href]").forEach(a => sel.push(a.href));
-  } else if (CTX.isSheets) {
-    // Best-effort: grab any anchor in the grid area / doc
-    document.querySelectorAll(".grid4-inner-container a[href], .waffle a[href], a[href]").forEach(a => sel.push(a.href));
+    const collected = [];
+    root.querySelectorAll("a[href]").forEach(a => collected.push(a.href));
+    return filterRealHttp(collected);
+  }
+
+  if (CTX.isSheets) {
+    let urls = getUrlsFromSheetsGrid();
+    if (!urls.length) urls = getUrlsFromSheetsBootstrap();
+    return urls;
+  }
+
+  const collected = [];
+  document.querySelectorAll("a[href]").forEach(a => collected.push(a.href));
+  return filterRealHttp(collected);
+}
+
+/* ========================= Clipboard building ========================= */
+
+function buildClipboardPayload(urls) {
+  // Decide formatting per-site + bullets
+  const isNotion = CTX.isNotion, isJira = CTX.isJira, isSheets = CTX.isSheets;
+
+  // Sheets: always provide plain text (one per line) so paste goes into rows/cells.
+  if (isSheets) {
+    const textPlain = urls.join("\n");
+    return { textPlain, html: null };
+  }
+
+  const bullets =
+    (isNotion && SETTINGS.bullet.notion) ||
+    (isJira   && SETTINGS.bullet.jira)   ||
+    (isSheets && SETTINGS.bullet.sheets); // harmless; sheets branch already returned.
+
+  const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  let html;
+  if (bullets) {
+    // Use a semantic list for Notion/Jira so it pastes as bullets.
+    html = `<ul>${urls.map(u => `<li><a href="${esc(u)}">${esc(u)}</a></li>`).join("")}</ul>`;
   } else {
-    document.querySelectorAll("a[href]").forEach(a => sel.push(a.href));
+    // Keep clean block-per-link structure (also pastes nicely).
+    html = urls.map(u => `<div><a href="${esc(u)}">${esc(u)}</a></div>`).join("");
   }
-  // De-dup + normalize
-  const out = [];
-  const seen = new Set();
-  for (const u of sel.map(normalize).filter(Boolean)) {
-    if (!seen.has(u)) { seen.add(u); out.push(u); }
-  }
-  return out;
+
+  // Plain text mirrors the structure: bullets become "- url" lines
+  const textPlain = bullets ? urls.map(u => `- ${u}`).join("\n") : urls.join("\n");
+  return { textPlain, html };
 }
 
 async function copyToClipboardRich(urls) {
   if (!urls?.length) return;
 
-  // Plain text (one per line)
-  const textPlain = urls.join("\n");
+  const { textPlain, html } = buildClipboardPayload(urls);
 
-  // HTML: one <div><a href="...">...</a></div> per URL to paste as separate rows in Notion/Jira
-  const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  const html = urls.map(u => `<div><a href="${esc(u)}">${esc(u)}</a></div>`).join("");
-
-  // Try the async ClipboardItem path first
   try {
-    const item = new ClipboardItem({
-      "text/plain": new Blob([textPlain], { type: "text/plain" }),
-      "text/html": new Blob([html], { type: "text/html" }),
-    });
+    const parts = { "text/plain": new Blob([textPlain], { type: "text/plain" }) };
+    if (html) parts["text/html"] = new Blob([html], { type: "text/html" });
+    const item = new ClipboardItem(parts);
     await navigator.clipboard.write([item]);
     toast("✅ Copied new URLs to clipboard");
-    return;
-  } catch (e) {
-    // Fallback: writeText (plain only)
+  } catch {
     try {
       await navigator.clipboard.writeText(textPlain);
       toast("✅ Copied new URLs (plain) to clipboard");
@@ -491,6 +608,12 @@ function toast(msg) {
 /* ========================= Actions ========================= */
 
 function onOpenUrls() {
+  // If site disabled, do nothing (UI shouldn't mount, but be safe)
+  if ((CTX.isNotion && !SETTINGS.enabled.notion) ||
+      (CTX.isJira   && !SETTINGS.enabled.jira)   ||
+      (CTX.isSheets && !SETTINGS.enabled.sheets)) {
+    return;
+  }
   const urls = getUrlsOnPage();
   chrome.runtime.sendMessage({
     cmd: "OPEN_URLS",
@@ -499,7 +622,6 @@ function onOpenUrls() {
 }
 
 async function onCopyNew() {
-  // Must be inside a tab group
   const groupInfo = await chrome.runtime.sendMessage({ cmd: "GET_GROUP_URLS" });
   if (!groupInfo || groupInfo.groupId === -1) {
     alert("⚠️ Current tab is not in a Tab Group");
