@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Tab Group Sync",
+  "name": "TabGroup Sync for Jira, Notion & Google Sheets",
   "version": "0.1.1",
   "description": "Sync a Chrome tab group with links on a Notion page, Jira issue, or Google Sheet.",
   "minimum_chrome_version": "114",
@@ -33,12 +33,7 @@
     "*://docs.google.com/*"
   ],
   "background": { "service_worker": "background.js" },
-  "commands": {
-    "_execute_action": {
-      "suggested_key": "MacCtrl+Ctrl+N",
-      "description": "Open Tab Group Sync"
-    }
-  },
+  
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
