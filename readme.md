@@ -16,27 +16,33 @@
 
 ## 🚀 Installation 
 
-<a href="https://chromewebstore.google.com/detail/whatsapp-web-copy-url/aclcelbdcmiklepkkgccaldkmehkmjdn">
+<a href="https://chromewebstore.google.com/detail/tabgroup-sync-for-jira-no/aelodlabmmhhpielnfcieamaipclpkga">
   <img src="images/chrome_web_store.png" alt="Install from Chrome Web Store" width="260"/>
 </a>
 
+- Option 1: Install directly from the [Chrome Web Store](https://chromewebstore.google.com/detail/tabgroup-sync-for-jira-no/aelodlabmmhhpielnfcieamaipclpkga)
+- Option 2: Download this repository and load it as an unpacked extension in Chrome.
+
 ## 🔥 Usage 
 
-todo
+- Clicking on **👉 Open all URLs** opens all URLs on that specific Jira Ticket, Notion page, or Google Sheet, in a new Chrome Tab Group
+- Clicking on **🔗Copy new URLs** copies all urls that are (a) in the same tab group and (b) not yet on the page > so you can copy the new ones
 
 ## 🤝  Found a bug? Missing a specific feature?
-Feel free to file a new <a href="https://github.com/lennarto/whatsapp-web-copy-link/issues" target="_blank">Issue</a>.
+Feel free to file a new <a href="https://github.com/lennarto/tab-group-sync/issues" target="_blank">Issue</a>.
 
 
 ## 💙 Support 
-##### 🤝 Contact me
+
+#### 🐞  Found a bug? Missing a specific feature?
+Feel free to file a new <a href="https://github.com/lennarto/whatsapp-web-copy-link/issues" target="_blank">Issue</a>.
+
+#### 🤝 Contact me
 I love building digital products, working in it-strategy, or applying ai in real-world use cases. On top of that, i create private it expert reports (🇩🇪 IT-Gutachten) for legal proceedings in germany, especially in criminal cases.
 👉 [My website](https://lennie.de) 👈
 
 
-##### 🍻 Buy me a beer 
+#### 🍻 Buy me a beer 
 
 If you’ve found something useful, feel free to fuel my next project with a Beer! 🍻 I do have a couple of cool ideas in my backlog 🚀
-
-## 📙 License
-"reopen-existing-tab" is released under the terms of the [MIT License](LICENSE).
+👉 [My Paypal](https://www.paypal.com/paypalme/ltoertzen) 👈

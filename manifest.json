@@ -21,10 +21,7 @@
     "tabs",
     "tabGroups",
     "storage",
-    "scripting",
-    "activeTab",
-    "clipboardWrite",
-    "contextMenus"
+    "clipboardWrite"
   ],
   "host_permissions": [
     "*://*.notion.so/*",
