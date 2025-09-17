@@ -25,8 +25,8 @@
 
 ## 🔥 Usage 
 
-- Clicking on **🔵 👉 Open all URLs 🔵** opens all URLs on that specific Jira Ticket, Notion page, or Google Sheet, in a new Chrome Tab Group
-- Clicking on **🔴 🔗Copy new URLs 🔴** copies all urls that are (a) in the same tab group and (b) not yet on the page > so you can copy the new ones
+- Clicking on **👉 Open all URLs** opens all URLs on that specific Jira Ticket, Notion page, or Google Sheet, in a new Chrome Tab Group
+- Clicking on **🔗 Copy new URLs** copies all urls that are (a) in the same tab group and (b) not yet on the page > so you can copy the new ones
 
 
 ## 💙 Support 
