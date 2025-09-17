@@ -26,7 +26,8 @@
 ## 🔥 Usage 
 
 - Clicking on <span style="color:rgb(47,167,217);font-weight:bold;">👉 Open all URLs</span> opens all URLs on that specific Jira Ticket, Notion page, or Google Sheet, in a new Chrome Tab Group  
-- Clicking on <span style="color:rgb(255,77,109);font-weight:bold;">🔗 Copy new URLs</span> copies all urls that are (a) in the same tab group and (b) not yet on the page > so you can copy the new ones
+- Clicking on <span style="color:rgb(255,77,109);font-weight:bold;">🔗 Copy new URLs</span> copies all urls that are (a) in the same tab group and (b) not yet on the page > <code style="color : aqua">text</code>
+so you can copy the new ones
 
 
 ## 💙 Support 
