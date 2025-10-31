@@ -13,7 +13,7 @@ const CTX = (() => {
   return {
     isNotion: /notion\.so$|notion\.site$/.test(h) || h.includes("notion."),
     isJira: h.endsWith("atlassian.net"),
-    isSheets: h === "docs.google.com",
+    isSheets: location.hostname === "docs.google.com" && location.pathname.startsWith("/spreadsheets"),
   };
 })();
 
@@ -52,9 +52,28 @@ async function loadSettings() {
   }
 }
 
+function runtimeAvailable() {
+  try { return !!(chrome && chrome.runtime && chrome.runtime.id); } catch { return false; }
+}
+
+async function safeSendMessage(message) {
+  if (!runtimeAvailable()) {
+    toast("Extension updated — please reload this tab.");
+    throw new Error("Extension context invalidated (no runtime id)");
+  }
+  try {
+    return await chrome.runtime.sendMessage(message);
+  } catch (e) {
+    console.warn("sendMessage failed", e);
+    toast("Extension updated — reload this tab to continue.");
+    throw e;
+  }
+}
+
 // Run after settings are ready
 (async function init() {
   await loadSettings();
+  setupDelegatedClicks();
 
   console.log("[TGS] content script loaded for", location.hostname, SETTINGS);
 
@@ -290,6 +309,8 @@ function mountInlineSheetsUi(menubar) {
     gap: "8px",
     marginLeft: "12px",
     verticalAlign: "middle",
+    zIndex: "2147483646",
+    pointerEvents: "auto",
   });
 
   const helpItem = menubar.querySelector("#docs-help-menu") ||
@@ -333,10 +354,31 @@ function hookHandlers() {
   if (insBtn) insBtn.addEventListener("click", onCopyNew, { once: false });
 }
 
+let __tgsClicksHooked = false;
+function setupDelegatedClicks() {
+  if (__tgsClicksHooked) return;
+  __tgsClicksHooked = true;
+  document.addEventListener(
+    "click",
+    (e) => {
+      const t = e.target;
+      if (!t) return;
+      const btn = t.closest(`#${IDS.openBtn}, #${IDS.insertBtn}`);
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (btn.id === IDS.openBtn) onOpenUrls();
+      else if (btn.id === IDS.insertBtn) onCopyNew();
+    },
+    true
+  );
+}
+
 /* ========================= Styles / Theming ========================= */
 
 function mkBtn(id, text, color) {
   const btn = document.createElement("button");
+  btn.type = "button";
   btn.id = id;
   btn.textContent = text;
   Object.assign(btn.style, {
@@ -614,22 +656,32 @@ function onOpenUrls() {
       (CTX.isSheets && !SETTINGS.enabled.sheets)) {
     return;
   }
+  if (!runtimeAvailable()) { toast("Extension reloaded — refresh this tab."); return; }
   const urls = getUrlsOnPage();
-  chrome.runtime.sendMessage({
+  safeSendMessage({
     cmd: "OPEN_URLS",
     payload: { urls, pageTitle: document.title || "" }
   });
 }
 
 async function onCopyNew() {
-  const groupInfo = await chrome.runtime.sendMessage({ cmd: "GET_GROUP_URLS" });
+  if (!runtimeAvailable()) { toast("Extension reloaded — refresh this tab."); return; }
+  const groupInfo = await safeSendMessage({ cmd: "GET_GROUP_URLS" });
   if (!groupInfo || groupInfo.groupId === -1) {
     alert("⚠️ Current tab is not in a Tab Group");
     return;
   }
 
+  // URLs already present on the page (normalized by filterRealHttp)
   const pageUrls = new Set(getUrlsOnPage());
-  const newOnes = (groupInfo.urls || []).filter(u => !pageUrls.has(u));
+
+  // Also exclude the current tab's own URL
+  const currentUrlN = normalize(location.href);
+
+  const newOnes = (groupInfo.urls || [])
+    .filter(u => u !== currentUrlN)      // <-- exclude current tab URL
+    .filter(u => !pageUrls.has(u));      // <-- exclude URLs already listed on the page
+
   if (!newOnes.length) {
     toast("All group URLs already listed here");
     return;
