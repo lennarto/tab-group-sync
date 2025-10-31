@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TabGroup Sync for Jira, Notion & Google Sheets",
-  "version": "0.1.1",
+  "version": "1.0",
   "description": "Sync a Chrome tab group with links on a Notion page, Jira issue, or Google Sheet.",
   "minimum_chrome_version": "114",
   "icons": {
